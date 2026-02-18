@@ -2,6 +2,7 @@ import flwr as fl
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
+from flwr.common import Context # New Import
 from utils import load_data, get_model_params, set_model_params
 import warnings
 
@@ -11,17 +12,17 @@ warnings.filterwarnings("ignore")
 class HeartDiseaseClient(fl.client.NumPyClient):
     def __init__(self, hospital_id):
         self.hospital_id = hospital_id
+        
         # Load this specific hospital's data
         self.X_train, self.y_train = load_data(hospital_id)
         
-        # Initialize the local model
         self.model = LogisticRegression(
             penalty='l2',
-            max_iter=1,      # Local training happens in "rounds"
-            warm_start=True  # Keeps learning from previous round's weights
+            max_iter=1, # Local training happens in "rounds"
+            warm_start=True # Keeps learning from previous round's weights
         )
         
-        # Pre-fill model with zeros to initialize it
+        # Initial fit to define classes
         self.model.fit(self.X_train, self.y_train)
 
     def get_parameters(self, config):
@@ -33,7 +34,6 @@ class HeartDiseaseClient(fl.client.NumPyClient):
         
         # Train for one epoch (iteration)
         self.model.fit(self.X_train, self.y_train)
-        
         print(f"Hospital {self.hospital_id} finished training.")
         return get_model_params(self.model), len(self.X_train), {}
 
@@ -43,10 +43,8 @@ class HeartDiseaseClient(fl.client.NumPyClient):
         # Calculate loss (how far off the model is)
         loss = log_loss(self.y_train, self.model.predict_proba(self.X_train))
         accuracy = self.model.score(self.X_train, self.y_train)
-        
         return loss, len(self.X_train), {"accuracy": accuracy}
 
-# This function will be used by the simulation to start clients
-def client_fn(cid: str) -> fl.client.Client:
-    # cid is provided by Flower as a string, we convert to int for our hospital IDs
-    return HeartDiseaseClient(hospital_id=int(cid) + 1).to_client()
+def client_fn(context: Context) -> fl.client.Client:
+    hospital_id = int(context.node_config["partition-id"]) + 1
+    return HeartDiseaseClient(hospital_id=hospital_id).to_client()
